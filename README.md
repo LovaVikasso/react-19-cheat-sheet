@@ -32,7 +32,34 @@
   - [8.1 Memoization](#memoization)
   - [8.2 Code Splitting](#code-splitting)
 - [9. Metadata](#metadata)
-- [10. Best Practices](#best-practices)
+- [10. Advanced Patterns](#advanced-patterns)
+  - [10.1 Higher-Order Components (HOC)](#higher-order-components-hoc)
+  - [10.2 Render Props](#render-props)
+  - [10.3 Compound Components](#compound-components)
+  - [10.4 Custom Hooks](#custom-hooks)
+  - [10.5 Render Functions](#render-functions)
+- [11. State Management](#state-management)
+  - [11.1 Zustand](#zustand)
+  - [11.2 Redux Toolkit](#redux-toolkit)
+  - [11.3 Jotai](#jotai)
+  - [11.4 Valtio](#valtio)
+- [12. Styling](#styling)
+  - [12.1 CSS Modules](#css-modules)
+  - [12.2 Styled Components](#styled-components)
+  - [12.3 Tailwind CSS](#tailwind-css)
+  - [12.4 CSS-in-JS](#css-in-js)
+- [13. Testing](#testing)
+  - [13.1 Jest](#jest)
+  - [13.2 React Testing Library](#react-testing-library)
+  - [13.3 Vitest](#vitest)
+- [14. Animation](#animation)
+  - [14.1 Framer Motion](#framer-motion)
+  - [14.2 React Spring](#react-spring)
+  - [14.3 CSS Transitions](#css-transitions)
+- [15. Internationalization](#internationalization)
+  - [15.1 React Intl](#react-intl)
+  - [15.2 i18next](#i18next)
+- [16. Best Practices](#best-practices)
 
 ## Getting Started
 
@@ -989,161 +1016,1396 @@ export async function generateMetadata({ params }) {
 }
 ```
 
+## Advanced Patterns
+
+### Higher-Order Components (HOC)
+
+```tsx
+// Basic HOC
+type WithLoadingProps = { loading: boolean };
+type WithLoadingComponentProps<T> = T & WithLoadingProps;
+
+const withLoading = <T extends object>(Component: React.ComponentType<T>) => {
+  const WithLoading = (props: WithLoadingComponentProps<T>) => {
+    if (props.loading) {
+      return <div>Loading...</div>;
+    }
+    return <Component {...(props as T)} />;
+  };
+
+  WithLoading.displayName = `withLoading(${
+    Component.displayName || Component.name
+  })`;
+  return WithLoading;
+};
+
+// Usage
+type UserProps = { user: { name: string; email: string } };
+const UserProfile = ({ user }: UserProps) => (
+  <div>
+    <h2>{user.name}</h2>
+    <p>{user.email}</p>
+  </div>
+);
+
+const UserProfileWithLoading = withLoading(UserProfile);
+
+// HOC with additional props
+const withErrorBoundary = <T extends object>(
+  Component: React.ComponentType<T>,
+  fallback: React.ComponentType<{ error: Error }>
+) => {
+  return class ErrorBoundary extends React.Component<T & { error?: Error }> {
+    state = { hasError: false, error: null as Error | null };
+
+    static getDerivedStateFromError(error: Error) {
+      return { hasError: true, error };
+    }
+
+    render() {
+      if (this.state.hasError) {
+        return <fallback error={this.state.error!} />;
+      }
+      return <Component {...this.props} />;
+    }
+  };
+};
+```
+
+### Render Props
+
+```tsx
+// Mouse position with render props
+type MousePosition = { x: number; y: number };
+type MouseProps = { children: (position: MousePosition) => React.ReactNode };
+
+const Mouse = ({ children }: MouseProps) => {
+  const [position, setPosition] = useState<MousePosition>({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const handleMouseMove = (event: MouseEvent) => {
+      setPosition({ x: event.clientX, y: event.clientY });
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
+
+  return <>{children(position)}</>;
+};
+
+// Usage
+const App = () => (
+  <Mouse>
+    {({ x, y }) => (
+      <div>
+        Mouse position: {x}, {y}
+      </div>
+    )}
+  </Mouse>
+);
+
+// Data fetching with render props
+type DataFetcherProps<T> = {
+  url: string;
+  children: (
+    data: T | null,
+    loading: boolean,
+    error: Error | null
+  ) => React.ReactNode;
+};
+
+const DataFetcher = <T,>({ url, children }: DataFetcherProps<T>) => {
+  const [data, setData] = useState<T | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    fetch(url)
+      .then((res) => res.json())
+      .then(setData)
+      .catch(setError)
+      .finally(() => setLoading(false));
+  }, [url]);
+
+  return <>{children(data, loading, error)}</>;
+};
+```
+
+### Compound Components
+
+```tsx
+// Toggle component
+type ToggleContextType = {
+  on: boolean;
+  toggle: () => void;
+};
+
+const ToggleContext = createContext<ToggleContextType | undefined>(undefined);
+
+const useToggle = () => {
+  const context = useContext(ToggleContext);
+  if (!context) {
+    throw new Error('useToggle must be used within Toggle');
+  }
+  return context;
+};
+
+type ToggleProps = {
+  children: React.ReactNode;
+  initialOn?: boolean;
+};
+
+const Toggle = ({ children, initialOn = false }: ToggleProps) => {
+  const [on, setOn] = useState(initialOn);
+  const toggle = useCallback(() => setOn((prev) => !prev), []);
+
+  return (
+    <ToggleContext.Provider value={{ on, toggle }}>
+      {children}
+    </ToggleContext.Provider>
+  );
+};
+
+// Compound components
+Toggle.On = ({ children }: { children: React.ReactNode }) => {
+  const { on } = useToggle();
+  return on ? <>{children}</> : null;
+};
+
+Toggle.Off = ({ children }: { children: React.ReactNode }) => {
+  const { on } = useToggle();
+  return !on ? <>{children}</> : null;
+};
+
+Toggle.Button = ({
+  children,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement>) => {
+  const { on, toggle } = useToggle();
+  return (
+    <button onClick={toggle} aria-pressed={on} {...props}>
+      {children}
+    </button>
+  );
+};
+
+// Usage
+const App = () => (
+  <Toggle>
+    <Toggle.On>The button is on!</Toggle.On>
+    <Toggle.Off>The button is off!</Toggle.Off>
+    <Toggle.Button>Toggle me</Toggle.Button>
+  </Toggle>
+);
+```
+
+### Custom Hooks
+
+```tsx
+// useLocalStorage hook
+const useLocalStorage = <T,>(key: string, initialValue: T) => {
+  const [storedValue, setStoredValue] = useState<T>(() => {
+    try {
+      const item = window.localStorage.getItem(key);
+      return item ? JSON.parse(item) : initialValue;
+    } catch {
+      return initialValue;
+    }
+  });
+
+  const setValue = useCallback(
+    (value: T | ((val: T) => T)) => {
+      try {
+        const valueToStore =
+          value instanceof Function ? value(storedValue) : value;
+        setStoredValue(valueToStore);
+        window.localStorage.setItem(key, JSON.stringify(valueToStore));
+      } catch {
+        // Handle error
+      }
+    },
+    [key, storedValue]
+  );
+
+  return [storedValue, setValue] as const;
+};
+
+// useDebounce hook
+const useDebounce = <T,>(value: T, delay: number): T => {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [value, delay]);
+
+  return debouncedValue;
+};
+
+// useIntersectionObserver hook
+const useIntersectionObserver = (
+  ref: RefObject<Element>,
+  options: IntersectionObserverInit = {}
+) => {
+  const [isIntersecting, setIsIntersecting] = useState(false);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+
+    const observer = new IntersectionObserver(([entry]) => {
+      setIsIntersecting(entry.isIntersecting);
+    }, options);
+
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ref, options]);
+
+  return isIntersecting;
+};
+
+// useAsync hook
+type AsyncState<T> = {
+  data: T | null;
+  loading: boolean;
+  error: Error | null;
+};
+
+const useAsync = <T,>(asyncFn: () => Promise<T>, deps: DependencyList = []) => {
+  const [state, setState] = useState<AsyncState<T>>({
+    data: null,
+    loading: true,
+    error: null,
+  });
+
+  useEffect(() => {
+    let mounted = true;
+
+    setState({ data: null, loading: true, error: null });
+
+    asyncFn()
+      .then((data) => {
+        if (mounted) {
+          setState({ data, loading: false, error: null });
+        }
+      })
+      .catch((error) => {
+        if (mounted) {
+          setState({ data: null, loading: false, error });
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, deps);
+
+  return state;
+};
+```
+
+### Render Functions
+
+```tsx
+// Component that accepts render function
+type RenderFunctionProps<T> = {
+  data: T;
+  render: (item: T) => React.ReactNode;
+};
+
+const RenderFunction = <T,>({ data, render }: RenderFunctionProps<T>) => {
+  return <div className="render-container">{render(data)}</div>;
+};
+
+// Usage with different render functions
+const UserList = () => {
+  const users = [
+    { id: 1, name: 'John', email: 'john@example.com' },
+    { id: 2, name: 'Jane', email: 'jane@example.com' },
+  ];
+
+  return (
+    <div>
+      <RenderFunction
+        data={users}
+        render={(users) => (
+          <ul>
+            {users.map((user) => (
+              <li key={user.id}>{user.name}</li>
+            ))}
+          </ul>
+        )}
+      />
+
+      <RenderFunction
+        data={users}
+        render={(users) => (
+          <div>
+            {users.map((user) => (
+              <div key={user.id}>
+                <strong>{user.name}</strong>: {user.email}
+              </div>
+            ))}
+          </div>
+        )}
+      />
+    </div>
+  );
+};
+```
+
+## State Management
+
+### Zustand
+
+```tsx
+import { create } from 'zustand';
+import { devtools, persist } from 'zustand/middleware';
+
+type User = { id: string; name: string; email: string };
+
+type UserStore = {
+  users: User[];
+  currentUser: User | null;
+  addUser: (user: User) => void;
+  removeUser: (id: string) => void;
+  setCurrentUser: (user: User | null) => void;
+};
+
+const useUserStore = create<UserStore>()(
+  devtools(
+    persist(
+      (set) => ({
+        users: [],
+        currentUser: null,
+        addUser: (user) => set((state) => ({ users: [...state.users, user] })),
+        removeUser: (id) =>
+          set((state) => ({ users: state.users.filter((u) => u.id !== id) })),
+        setCurrentUser: (user) => set({ currentUser: user }),
+      }),
+      { name: 'user-storage' }
+    )
+  )
+);
+
+// Usage
+const UserList = () => {
+  const { users, addUser, removeUser } = useUserStore();
+
+  return (
+    <div>
+      {users.map((user) => (
+        <div key={user.id}>
+          {user.name}
+          <button onClick={() => removeUser(user.id)}>Remove</button>
+        </div>
+      ))}
+    </div>
+  );
+};
+```
+
+### Redux Toolkit
+
+```tsx
+import { createSlice, configureStore } from '@reduxjs/toolkit';
+import { Provider, useSelector, useDispatch } from 'react-redux';
+
+type User = { id: string; name: string; email: string };
+
+type UserState = {
+  users: User[];
+  loading: boolean;
+  error: string | null;
+};
+
+const userSlice = createSlice({
+  name: 'users',
+  initialState: { users: [], loading: false, error: null } as UserState,
+  reducers: {
+    addUser: (state, action) => {
+      state.users.push(action.payload);
+    },
+    removeUser: (state, action) => {
+      state.users = state.users.filter((u) => u.id !== action.payload);
+    },
+    setLoading: (state, action) => {
+      state.loading = action.payload;
+    },
+    setError: (state, action) => {
+      state.error = action.payload;
+    },
+  },
+});
+
+const store = configureStore({
+  reducer: {
+    users: userSlice.reducer,
+  },
+});
+
+const { addUser, removeUser, setLoading, setError } = userSlice.actions;
+
+// Usage
+const UserList = () => {
+  const users = useSelector((state: RootState) => state.users.users);
+  const dispatch = useDispatch();
+
+  return (
+    <div>
+      {users.map((user) => (
+        <div key={user.id}>
+          {user.name}
+          <button onClick={() => dispatch(removeUser(user.id))}>Remove</button>
+        </div>
+      ))}
+    </div>
+  );
+};
+```
+
+### Jotai
+
+```tsx
+import { atom, useAtom } from 'jotai';
+import { atomWithStorage } from 'jotai/utils';
+
+type User = { id: string; name: string; email: string };
+
+// Basic atoms
+const usersAtom = atom<User[]>([]);
+const currentUserAtom = atom<User | null>(null);
+
+// Derived atoms
+const userCountAtom = atom((get) => get(usersAtom).length);
+const activeUsersAtom = atom((get) =>
+  get(usersAtom).filter((user) => user.id !== get(currentUserAtom)?.id)
+);
+
+// Persistent atoms
+const themeAtom = atomWithStorage<'light' | 'dark'>('theme', 'light');
+
+// Actions
+const addUserAtom = atom(null, (get, set, user: User) => {
+  const users = get(usersAtom);
+  set(usersAtom, [...users, user]);
+});
+
+const removeUserAtom = atom(null, (get, set, id: string) => {
+  const users = get(usersAtom);
+  set(
+    usersAtom,
+    users.filter((u) => u.id !== id)
+  );
+});
+
+// Usage
+const UserList = () => {
+  const [users] = useAtom(usersAtom);
+  const [userCount] = useAtom(userCountAtom);
+  const [, addUser] = useAtom(addUserAtom);
+  const [, removeUser] = useAtom(removeUserAtom);
+
+  return (
+    <div>
+      <p>Total users: {userCount}</p>
+      {users.map((user) => (
+        <div key={user.id}>
+          {user.name}
+          <button onClick={() => removeUser(user.id)}>Remove</button>
+        </div>
+      ))}
+    </div>
+  );
+};
+```
+
+### Valtio
+
+```tsx
+import { proxy, useSnapshot } from 'valtio';
+
+type User = { id: string; name: string; email: string };
+
+type AppState = {
+  users: User[];
+  currentUser: User | null;
+  addUser: (user: User) => void;
+  removeUser: (id: string) => void;
+  setCurrentUser: (user: User | null) => void;
+};
+
+const state = proxy<AppState>({
+  users: [],
+  currentUser: null,
+  addUser: (user) => {
+    state.users.push(user);
+  },
+  removeUser: (id) => {
+    state.users = state.users.filter((u) => u.id !== id);
+  },
+  setCurrentUser: (user) => {
+    state.currentUser = user;
+  },
+});
+
+// Usage
+const UserList = () => {
+  const snap = useSnapshot(state);
+
+  return (
+    <div>
+      {snap.users.map((user) => (
+        <div key={user.id}>
+          {user.name}
+          <button onClick={() => state.removeUser(user.id)}>Remove</button>
+        </div>
+      ))}
+    </div>
+  );
+};
+```
+
+## Styling
+
+### CSS Modules
+
+```tsx
+// styles.module.css
+.container {
+  padding: 20px;
+  background: #f5f5f5;
+}
+
+.title {
+  color: #333;
+  font-size: 24px;
+}
+
+.button {
+  background: #007bff;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.button:hover {
+  background: #0056b3;
+}
+
+// Component
+import styles from './styles.module.css';
+
+const StyledComponent = () => (
+  <div className={styles.container}>
+    <h1 className={styles.title}>Hello World</h1>
+    <button className={styles.button}>Click me</button>
+  </div>
+);
+```
+
+### Styled Components
+
+```tsx
+import styled, { css, keyframes } from 'styled-components';
+
+type ButtonProps = {
+  primary?: boolean;
+  size?: 'small' | 'medium' | 'large';
+  disabled?: boolean;
+};
+
+const spin = keyframes`
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+`;
+
+const StyledButton = styled.button<ButtonProps>`
+  background: ${(props) => (props.primary ? '#007bff' : '#6c757d')};
+  color: white;
+  border: none;
+  padding: ${(props) => {
+    switch (props.size) {
+      case 'small':
+        return '8px 16px';
+      case 'large':
+        return '16px 32px';
+      default:
+        return '12px 24px';
+    }
+  }};
+  border-radius: 4px;
+  cursor: ${(props) => (props.disabled ? 'not-allowed' : 'pointer')};
+  opacity: ${(props) => (props.disabled ? 0.6 : 1)};
+
+  &:hover {
+    background: ${(props) => (props.primary ? '#0056b3' : '#545b62')};
+  }
+
+  ${(props) =>
+    props.disabled &&
+    css`
+      pointer-events: none;
+    `}
+`;
+
+const Spinner = styled.div`
+  animation: ${spin} 1s linear infinite;
+  width: 20px;
+  height: 20px;
+  border: 2px solid #f3f3f3;
+  border-top: 2px solid #007bff;
+  border-radius: 50%;
+`;
+
+// Usage
+const App = () => (
+  <div>
+    <StyledButton primary size="large">
+      Primary Button
+    </StyledButton>
+    <StyledButton size="small">Secondary Button</StyledButton>
+    <StyledButton disabled>Disabled Button</StyledButton>
+    <Spinner />
+  </div>
+);
+```
+
+### Tailwind CSS
+
+```tsx
+// Component with Tailwind classes
+const TailwindComponent = () => (
+  <div className="min-h-screen bg-gray-100 py-6 flex flex-col justify-center sm:py-12">
+    <div className="relative py-3 sm:max-w-xl sm:mx-auto">
+      <div className="relative px-4 py-10 bg-white shadow-lg sm:rounded-3xl sm:p-20">
+        <div className="max-w-md mx-auto">
+          <div className="divide-y divide-gray-200">
+            <div className="py-8 text-base leading-6 space-y-4 text-gray-700 sm:text-lg sm:leading-7">
+              <h1 className="text-3xl font-bold text-gray-900 mb-8">
+                Hello World
+              </h1>
+              <button className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition-colors duration-200">
+                Click me
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
+// Responsive design
+const ResponsiveComponent = () => (
+  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
+    <div className="bg-white p-6 rounded-lg shadow-md">
+      <h2 className="text-xl font-semibold mb-4">Card 1</h2>
+      <p className="text-gray-600">Content here</p>
+    </div>
+    <div className="bg-white p-6 rounded-lg shadow-md">
+      <h2 className="text-xl font-semibold mb-4">Card 2</h2>
+      <p className="text-gray-600">Content here</p>
+    </div>
+    <div className="bg-white p-6 rounded-lg shadow-md">
+      <h2 className="text-xl font-semibold mb-4">Card 3</h2>
+      <p className="text-gray-600">Content here</p>
+    </div>
+  </div>
+);
+```
+
+### CSS-in-JS
+
+```tsx
+// Emotion
+import { css } from '@emotion/react';
+
+const buttonStyles = css`
+  background: #007bff;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 4px;
+  cursor: pointer;
+
+  &:hover {
+    background: #0056b3;
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+`;
+
+const Button = ({ children, disabled, ...props }) => (
+  <button css={buttonStyles} disabled={disabled} {...props}>
+    {children}
+  </button>
+);
+
+// Stitches
+import { styled } from '@stitches/react';
+
+const StyledButton = styled('button', {
+  backgroundColor: '#007bff',
+  color: 'white',
+  border: 'none',
+  padding: '12px 24px',
+  borderRadius: '4px',
+  cursor: 'pointer',
+
+  '&:hover': {
+    backgroundColor: '#0056b3',
+  },
+
+  variants: {
+    size: {
+      small: { padding: '8px 16px' },
+      large: { padding: '16px 32px' },
+    },
+    variant: {
+      primary: { backgroundColor: '#007bff' },
+      secondary: { backgroundColor: '#6c757d' },
+    },
+  },
+});
+```
+
+## Testing
+
+### Jest
+
+```tsx
+// Component test
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { Counter } from './Counter';
+
+describe('Counter', () => {
+  test('renders counter with initial value', () => {
+    render(<Counter />);
+    expect(screen.getByText('Count: 0')).toBeInTheDocument();
+  });
+
+  test('increments counter when button is clicked', async () => {
+    const user = userEvent.setup();
+    render(<Counter />);
+
+    const button = screen.getByRole('button', { name: /increment/i });
+    await user.click(button);
+
+    expect(screen.getByText('Count: 1')).toBeInTheDocument();
+  });
+
+  test('decrements counter when decrement button is clicked', async () => {
+    const user = userEvent.setup();
+    render(<Counter />);
+
+    const decrementButton = screen.getByRole('button', { name: /decrement/i });
+    await user.click(decrementButton);
+
+    expect(screen.getByText('Count: -1')).toBeInTheDocument();
+  });
+});
+```
+
+### React Testing Library
+
+```tsx
+// Custom hook test
+import { renderHook, act } from '@testing-library/react';
+import { useCounter } from './useCounter';
+
+describe('useCounter', () => {
+  test('should increment counter', () => {
+    const { result } = renderHook(() => useCounter());
+
+    act(() => {
+      result.current.increment();
+    });
+
+    expect(result.current.count).toBe(1);
+  });
+
+  test('should decrement counter', () => {
+    const { result } = renderHook(() => useCounter());
+
+    act(() => {
+      result.current.decrement();
+    });
+
+    expect(result.current.count).toBe(-1);
+  });
+
+  test('should reset counter', () => {
+    const { result } = renderHook(() => useCounter());
+
+    act(() => {
+      result.current.increment();
+      result.current.increment();
+      result.current.reset();
+    });
+
+    expect(result.current.count).toBe(0);
+  });
+});
+
+// Integration test
+test('user can add a todo', async () => {
+  const user = userEvent.setup();
+  render(<TodoApp />);
+
+  const input = screen.getByPlaceholderText(/add a todo/i);
+  const addButton = screen.getByRole('button', { name: /add/i });
+
+  await user.type(input, 'Buy groceries');
+  await user.click(addButton);
+
+  expect(screen.getByText('Buy groceries')).toBeInTheDocument();
+  expect(input).toHaveValue('');
+});
+```
+
+### Vitest
+
+```tsx
+// Vitest configuration
+import { defineConfig } from 'vitest/config';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['./src/test/setup.ts'],
+    globals: true,
+  },
+});
+
+// Component test with Vitest
+import { describe, it, expect } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import { UserProfile } from './UserProfile';
+
+describe('UserProfile', () => {
+  it('renders user information', () => {
+    const user = { name: 'John Doe', email: 'john@example.com' };
+    render(<UserProfile user={user} />);
+
+    expect(screen.getByText('John Doe')).toBeInTheDocument();
+    expect(screen.getByText('john@example.com')).toBeInTheDocument();
+  });
+
+  it('shows loading state', () => {
+    render(<UserProfile loading />);
+    expect(screen.getByText(/loading/i)).toBeInTheDocument();
+  });
+});
+```
+
+## Animation
+
+### Framer Motion
+
+```tsx
+import { motion, AnimatePresence } from 'framer-motion';
+
+const AnimatedComponent = () => (
+  <motion.div
+    initial={{ opacity: 0, y: 20 }}
+    animate={{ opacity: 1, y: 0 }}
+    exit={{ opacity: 0, y: -20 }}
+    transition={{ duration: 0.5 }}
+  >
+    <h1>Animated Content</h1>
+  </motion.div>
+);
+
+const ListWithAnimations = () => {
+  const [items, setItems] = useState(['Item 1', 'Item 2', 'Item 3']);
+
+  return (
+    <ul>
+      <AnimatePresence>
+        {items.map((item, index) => (
+          <motion.li
+            key={item}
+            initial={{ opacity: 0, x: -100 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 100 }}
+            transition={{ delay: index * 0.1 }}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            {item}
+          </motion.li>
+        ))}
+      </AnimatePresence>
+    </ul>
+  );
+};
+
+const DragComponent = () => (
+  <motion.div
+    drag
+    dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
+    dragElastic={0.1}
+    whileDrag={{ scale: 1.1 }}
+  >
+    <div className="w-20 h-20 bg-blue-500 rounded-full" />
+  </motion.div>
+);
+```
+
+### React Spring
+
+```tsx
+import { useSpring, animated, useTransition } from '@react-spring/web';
+
+const SpringComponent = () => {
+  const [isVisible, setIsVisible] = useState(false);
+
+  const springProps = useSpring({
+    opacity: isVisible ? 1 : 0,
+    transform: isVisible ? 'translateY(0px)' : 'translateY(20px)',
+    config: { tension: 300, friction: 20 },
+  });
+
+  return (
+    <animated.div style={springProps}>
+      <h1>Spring Animated Content</h1>
+    </animated.div>
+  );
+};
+
+const NumberCounter = () => {
+  const [count, setCount] = useState(0);
+
+  const { number } = useSpring({
+    number: count,
+    from: { number: 0 },
+    config: { mass: 1, tension: 20, friction: 10 },
+  });
+
+  return (
+    <div>
+      <animated.span>{number.to((n) => n.toFixed(0))}</animated.span>
+      <button onClick={() => setCount(count + 1)}>Increment</button>
+    </div>
+  );
+};
+```
+
+### CSS Transitions
+
+```tsx
+import { useState } from 'react';
+
+const CSSTransitionComponent = () => {
+  const [isVisible, setIsVisible] = useState(false);
+
+  return (
+    <div>
+      <button onClick={() => setIsVisible(!isVisible)}>Toggle</button>
+      <div
+        className={`transition-all duration-300 ease-in-out ${
+          isVisible
+            ? 'opacity-100 transform translate-y-0'
+            : 'opacity-0 transform -translate-y-4'
+        }`}
+      >
+        <h1>CSS Transitioned Content</h1>
+      </div>
+    </div>
+  );
+};
+
+// CSS classes
+const styles = `
+  .fade-enter {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  
+  .fade-enter-active {
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity 300ms, transform 300ms;
+  }
+  
+  .fade-exit {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  
+  .fade-exit-active {
+    opacity: 0;
+    transform: translateY(-20px);
+    transition: opacity 300ms, transform 300ms;
+  }
+`;
+```
+
+## Internationalization
+
+### React Intl
+
+```tsx
+import { IntlProvider, FormattedMessage, useIntl } from 'react-intl';
+
+const messages = {
+  en: {
+    'app.greeting': 'Hello, {name}!',
+    'app.welcome': 'Welcome to our app',
+    'app.button.submit': 'Submit',
+    'app.button.cancel': 'Cancel',
+  },
+  es: {
+    'app.greeting': '¡Hola, {name}!',
+    'app.welcome': 'Bienvenido a nuestra aplicación',
+    'app.button.submit': 'Enviar',
+    'app.button.cancel': 'Cancelar',
+  },
+};
+
+const App = () => {
+  const [locale, setLocale] = useState('en');
+
+  return (
+    <IntlProvider messages={messages[locale]} locale={locale}>
+      <div>
+        <select value={locale} onChange={(e) => setLocale(e.target.value)}>
+          <option value="en">English</option>
+          <option value="es">Español</option>
+        </select>
+
+        <FormattedMessage id="app.greeting" values={{ name: 'John' }} />
+
+        <p>
+          <FormattedMessage id="app.welcome" />
+        </p>
+
+        <button>
+          <FormattedMessage id="app.button.submit" />
+        </button>
+      </div>
+    </IntlProvider>
+  );
+};
+
+const LocalizedComponent = () => {
+  const intl = useIntl();
+
+  return (
+    <div>{intl.formatMessage({ id: 'app.greeting' }, { name: 'World' })}</div>
+  );
+};
+```
+
+### i18next
+
+```tsx
+import { useTranslation } from 'react-i18next';
+import i18n from 'i18next';
+import { initReactI18next } from 'react-i18next';
+
+const resources = {
+  en: {
+    translation: {
+      'app.greeting': 'Hello, {{name}}!',
+      'app.welcome': 'Welcome to our app',
+      'app.button.submit': 'Submit',
+      'app.button.cancel': 'Cancel',
+    },
+  },
+  es: {
+    translation: {
+      'app.greeting': '¡Hola, {{name}}!',
+      'app.welcome': 'Bienvenido a nuestra aplicación',
+      'app.button.submit': 'Enviar',
+      'app.button.cancel': 'Cancelar',
+    },
+  },
+};
+
+i18n.use(initReactI18next).init({
+  resources,
+  lng: 'en',
+  fallbackLng: 'en',
+  interpolation: {
+    escapeValue: false,
+  },
+});
+
+const App = () => {
+  const { t, i18n } = useTranslation();
+
+  const changeLanguage = (lng: string) => {
+    i18n.changeLanguage(lng);
+  };
+
+  return (
+    <div>
+      <select
+        value={i18n.language}
+        onChange={(e) => changeLanguage(e.target.value)}
+      >
+        <option value="en">English</option>
+        <option value="es">Español</option>
+      </select>
+
+      <h1>{t('app.greeting', { name: 'John' })}</h1>
+      <p>{t('app.welcome')}</p>
+
+      <button>{t('app.button.submit')}</button>
+      <button>{t('app.button.cancel')}</button>
+    </div>
+  );
+};
+```
+
 ## Best Practices
 
 ### Component Structure
 
-```jsx
-// Good component structure
-function UserCard({ user, onEdit, onDelete }) {
+```tsx
+// Good component structure with modern patterns
+type UserCardProps = {
+  user: { id: string; name: string; email: string; avatar?: string };
+  onEdit: (user: User) => void;
+  onDelete: (id: string) => void;
+  variant?: 'default' | 'compact';
+};
+
+const UserCard = ({
+  user,
+  onEdit,
+  onDelete,
+  variant = 'default',
+}: UserCardProps) => {
   // 1. Hooks at the top
   const [isEditing, setIsEditing] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
 
-  // 2. Event handlers
-  const handleEdit = () => {
+  // 2. Derived state
+  const fullName = `${user.name}`;
+  const isCompact = variant === 'compact';
+
+  // 3. Event handlers
+  const handleEdit = useCallback(() => {
     setIsEditing(true);
     onEdit(user);
-  };
+  }, [onEdit, user]);
 
-  // 3. Computed values
-  const fullName = `${user.firstName} ${user.lastName}`;
+  const handleDelete = useCallback(() => {
+    if (confirm('Are you sure you want to delete this user?')) {
+      onDelete(user.id);
+    }
+  }, [onDelete, user.id]);
 
   // 4. Render
   return (
-    <div className="user-card">
-      <h3>{fullName}</h3>
-      <p>{user.email}</p>
-      <div className="actions">
-        <button onClick={handleEdit}>Edit</button>
-        <button onClick={() => onDelete(user.id)}>Delete</button>
+    <motion.div
+      className={`user-card ${isCompact ? 'compact' : ''}`}
+      onHoverStart={() => setIsHovered(true)}
+      onHoverEnd={() => setIsHovered(false)}
+      whileHover={{ scale: 1.02 }}
+      whileTap={{ scale: 0.98 }}
+    >
+      <div className="user-avatar">
+        {user.avatar ? (
+          <img src={user.avatar} alt={fullName} />
+        ) : (
+          <div className="avatar-placeholder">
+            {fullName.charAt(0).toUpperCase()}
+          </div>
+        )}
       </div>
-    </div>
+
+      <div className="user-info">
+        <h3 className="user-name">{fullName}</h3>
+        <p className="user-email">{user.email}</p>
+      </div>
+
+      <AnimatePresence>
+        {isHovered && (
+          <motion.div
+            className="user-actions"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
+          >
+            <button onClick={handleEdit} className="btn-edit">
+              Edit
+            </button>
+            <button onClick={handleDelete} className="btn-delete">
+              Delete
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
   );
-}
-```
-
-### State Management
-
-```jsx
-// Local state for UI
-function TodoList() {
-  const [todos, setTodos] = useState([]);
-  const [filter, setFilter] = useState('all');
-
-  const filteredTodos = useMemo(() => {
-    switch (filter) {
-      case 'active':
-        return todos.filter((todo) => !todo.completed);
-      case 'completed':
-        return todos.filter((todo) => todo.completed);
-      default:
-        return todos;
-    }
-  }, [todos, filter]);
-
-  return (
-    <div>
-      <select value={filter} onChange={(e) => setFilter(e.target.value)}>
-        <option value="all">All</option>
-        <option value="active">Active</option>
-        <option value="completed">Completed</option>
-      </select>
-      {filteredTodos.map((todo) => (
-        <TodoItem key={todo.id} todo={todo} />
-      ))}
-    </div>
-  );
-}
+};
 ```
 
 ### Error Handling
 
-```jsx
-// Error boundaries
-class ErrorBoundary extends React.Component {
-  constructor(props) {
+```tsx
+// Modern error boundary with hooks
+type ErrorBoundaryState = {
+  hasError: boolean;
+  error: Error | null;
+};
+
+class ErrorBoundary extends React.Component<
+  {
+    children: React.ReactNode;
+    fallback?: React.ComponentType<{ error: Error }>;
+  },
+  ErrorBoundaryState
+> {
+  constructor(props: any) {
     super(props);
-    this.state = { hasError: false };
+    this.state = { hasError: false, error: null };
   }
 
-  static getDerivedStateFromError(error) {
-    return { hasError: true };
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
   }
 
-  componentDidCatch(error, errorInfo) {
-    console.error('Error caught:', error, errorInfo);
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('Error caught by boundary:', error, errorInfo);
+    // Log to error reporting service
   }
 
   render() {
     if (this.state.hasError) {
-      return <h1>Something went wrong.</h1>;
+      const FallbackComponent = this.props.fallback || DefaultErrorFallback;
+      return <FallbackComponent error={this.state.error!} />;
     }
 
     return this.props.children;
   }
 }
 
-// Async error handling
-function AsyncComponent() {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
+const DefaultErrorFallback = ({ error }: { error: Error }) => (
+  <div className="error-boundary">
+    <h2>Something went wrong</h2>
+    <details>
+      <summary>Error details</summary>
+      <pre>{error.message}</pre>
+    </details>
+  </div>
+);
 
-  useEffect(() => {
-    fetchData().then(setData).catch(setError);
+// Async error handling with custom hook
+const useAsyncError = () => {
+  const [, setError] = useState();
+  return useCallback((e: Error) => {
+    setError(() => {
+      throw e;
+    });
   }, []);
+};
 
-  if (error) return <div>Error: {error.message}</div>;
-  if (!data) return <div>Loading...</div>;
+const AsyncComponent = () => {
+  const throwError = useAsyncError();
+  const { data, loading, error } = useAsync(fetchData);
+
+  if (error) {
+    throwError(error);
+  }
+
+  if (loading) return <div>Loading...</div>;
 
   return <div>{data}</div>;
-}
+};
 ```
 
-### Performance Tips
+### Performance Optimization
 
-```jsx
-// 1. Use React.memo for expensive components
-const ExpensiveComponent = React.memo(function ExpensiveComponent({ data }) {
-  return <div>{/* Expensive rendering */}</div>;
-});
+```tsx
+// Optimized component with modern patterns
+type ExpensiveListProps = {
+  items: Array<{ id: string; name: string; description: string }>;
+  filter: string;
+  sortBy: 'name' | 'date';
+};
 
-// 2. Use useCallback for event handlers passed to children
-function Parent() {
-  const handleClick = useCallback((id) => {
-    console.log('Clicked:', id);
+const ExpensiveList = memo(({ items, filter, sortBy }: ExpensiveListProps) => {
+  // Memoized expensive calculations
+  const filteredAndSortedItems = useMemo(() => {
+    const filtered = items.filter(
+      (item) =>
+        item.name.toLowerCase().includes(filter.toLowerCase()) ||
+        item.description.toLowerCase().includes(filter.toLowerCase())
+    );
+
+    return filtered.sort((a, b) => {
+      if (sortBy === 'name') {
+        return a.name.localeCompare(b.name);
+      }
+      return 0; // Add date comparison logic
+    });
+  }, [items, filter, sortBy]);
+
+  // Memoized event handlers
+  const handleItemClick = useCallback((id: string) => {
+    console.log('Item clicked:', id);
   }, []);
 
-  return <Child onClick={handleClick} />;
-}
-
-// 3. Use useMemo for expensive calculations
-function Component({ items }) {
-  const sortedItems = useMemo(() => {
-    return items.sort((a, b) => a.name.localeCompare(b.name));
-  }, [items]);
+  // Virtual scrolling for large lists
+  if (filteredAndSortedItems.length > 1000) {
+    return (
+      <VirtualizedList
+        items={filteredAndSortedItems}
+        itemHeight={60}
+        renderItem={({ item }) => (
+          <ListItem key={item.id} item={item} onClick={handleItemClick} />
+        )}
+      />
+    );
+  }
 
   return (
-    <div>
-      {sortedItems.map((item) => (
-        <Item key={item.id} item={item} />
+    <div className="list-container">
+      {filteredAndSortedItems.map((item) => (
+        <ListItem key={item.id} item={item} onClick={handleItemClick} />
       ))}
     </div>
   );
-}
+});
 
-// 4. Avoid inline objects and functions
-// Bad
-function BadComponent() {
-  return (
-    <Child style={{ color: 'red' }} onClick={() => console.log('click')} />
-  );
-}
+// Optimized list item
+const ListItem = memo(
+  ({ item, onClick }: { item: any; onClick: (id: string) => void }) => {
+    const handleClick = useCallback(() => {
+      onClick(item.id);
+    }, [onClick, item.id]);
 
-// Good
-function GoodComponent() {
-  const style = useMemo(() => ({ color: 'red' }), []);
-  const handleClick = useCallback(() => console.log('click'), []);
-
-  return <Child style={style} onClick={handleClick} />;
-}
+    return (
+      <motion.div
+        className="list-item"
+        onClick={handleClick}
+        whileHover={{ backgroundColor: '#f5f5f5' }}
+        whileTap={{ scale: 0.98 }}
+        layout
+      >
+        <h3>{item.name}</h3>
+        <p>{item.description}</p>
+      </motion.div>
+    );
+  }
+);
 ```
